@@ -160,6 +160,10 @@ export async function resolveAgentHarnessBeforePromptBuildResult(params: {
   const appendSystemContext = wrapPluginSystemContextSection(
     promptBuildResult?.appendSystemContext,
   );
+  const turnDeveloperInstructions = joinPresentTextSegments([
+    prependSystemContext,
+    appendSystemContext,
+  ]);
   return {
     prompt,
     ...(promptBuildResult?.toolsAllow !== undefined
@@ -168,14 +172,8 @@ export async function resolveAgentHarnessBeforePromptBuildResult(params: {
     developerInstructions:
       joinPresentTextSegments([prependSystemContext, systemPrompt, appendSystemContext]) ??
       systemPrompt,
-    ...(prependSystemContext || appendSystemContext
-      ? {
-          threadDeveloperInstructions: systemPrompt,
-          turnDeveloperInstructions: joinPresentTextSegments([
-            prependSystemContext,
-            appendSystemContext,
-          ]),
-        }
+    ...(turnDeveloperInstructions
+      ? { threadDeveloperInstructions: systemPrompt, turnDeveloperInstructions }
       : {}),
     promptInputRange: {
       start: promptInputStart,

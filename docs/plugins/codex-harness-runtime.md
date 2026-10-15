@@ -94,6 +94,7 @@ owns collaboration-mode instructions. Native children can inherit that fallback 
 for fallback refresh and inheritance semantics. Plugin `before_prompt_build`
 system context is prepared for each turn; changing recall results does not reload
 the managed thread or block follow-up messages while a background command runs.
+It follows stable parent context and shares the relay's 256 KiB context limit.
 Plugin `systemPrompt` replacements remain thread policy. Active `BOOTSTRAP.md` and, when memory tools are unavailable,
 bounded `MEMORY.md` content travel as plain turn input references. They are
 introduced on a new native thread, after a cold resume or native compaction,
