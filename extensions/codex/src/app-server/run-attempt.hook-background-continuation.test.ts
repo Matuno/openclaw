@@ -13,9 +13,7 @@ import {
   runCodexAppServerAttempt,
   setupRunAttemptTestHooks,
   tempDir,
-  threadStartResult,
 } from "./run-attempt-test-harness.js";
-import { getSharedCodexAppServerClientState } from "./shared-client-lifecycle.js";
 
 setupRunAttemptTestHooks();
 
@@ -50,52 +48,53 @@ describe("prompt hook context with native background commands", () => {
       exitCode: null,
       durationMs: null,
     };
-    const harness = createStartedThreadHarness(async (method, request) => {
-      if (method === "account/read") {
-        return { account: { type: "apiKey" } };
-      }
-      if (method === "thread/read") {
-        const result = threadStartResult("thread-1");
-        return { ...result, thread: { ...result.thread, status: { type: "idle" } } };
-      }
-      if (method === "thread/backgroundTerminals/list") {
-        return { data: [{ itemId: command.id, processId: command.processId }], nextCursor: null };
-      }
-      if (method === "turn/start") {
-        const route = getCodexInferenceThread(harness.client, "thread-1");
-        if (!route || !isJsonObject(request) || !isJsonObject(request.responsesapiClientMetadata)) {
-          throw new Error("Missing managed turn registration");
+    const harness = createStartedThreadHarness(
+      async (method, request) => {
+        if (method === "account/read") {
+          return { account: { type: "apiKey" } };
         }
-        const generation = request.responsesapiClientMetadata[CODEX_INFERENCE_GENERATION_KEY];
-        if (typeof generation !== "string") {
-          throw new Error("Missing managed generation");
+        if (method === "thread/backgroundTerminals/list") {
+          return { data: [{ itemId: command.id, processId: command.processId }], nextCursor: null };
         }
-        const nativeBody = { instructions: "Native model-owned policy", input: [] };
-        const metadata = { requestKind: "turn", threadId: "thread-1", generation };
-        const parent = route.context.prepare(nativeBody, metadata);
-        parent.assertCurrent();
-        const instructions = parent.body.instructions;
-        if (typeof instructions !== "string") {
-          throw new Error("Expected parent instructions");
+        if (method === "turn/start") {
+          const route = getCodexInferenceThread(harness.client, "thread-1");
+          if (
+            !route ||
+            !isJsonObject(request) ||
+            !isJsonObject(request.responsesapiClientMetadata)
+          ) {
+            throw new Error("Missing managed turn registration");
+          }
+          const generation = request.responsesapiClientMetadata[CODEX_INFERENCE_GENERATION_KEY];
+          if (typeof generation !== "string") {
+            throw new Error("Missing managed generation");
+          }
+          const nativeBody = { instructions: "Native model-owned policy", input: [] };
+          const metadata = { requestKind: "turn", threadId: "thread-1", generation };
+          const parent = route.context.prepare(nativeBody, metadata);
+          parent.assertCurrent();
+          const instructions = parent.body.instructions;
+          if (typeof instructions !== "string") {
+            throw new Error("Expected parent instructions");
+          }
+          received.push(instructions);
+          // Repeated parent requests refresh context without accumulating copies.
+          expect(route.context.prepare(nativeBody, metadata).body).toEqual(parent.body);
+          expect(
+            route.context.prepare(nativeBody, { ...metadata, requestKind: "compaction" }).body,
+          ).toBe(nativeBody);
+          expect(
+            route.context.prepare(nativeBody, {
+              ...metadata,
+              threadId: "child",
+              parentThreadId: "thread-1",
+            }).body,
+          ).toBe(nativeBody);
         }
-        received.push(instructions);
-        // Repeated parent requests refresh context without accumulating copies.
-        expect(route.context.prepare(nativeBody, metadata).body).toEqual(parent.body);
-        expect(
-          route.context.prepare(nativeBody, { ...metadata, requestKind: "compaction" }).body,
-        ).toBe(nativeBody);
-        expect(
-          route.context.prepare(nativeBody, {
-            ...metadata,
-            threadId: "child",
-            parentThreadId: "thread-1",
-          }).body,
-        ).toBe(nativeBody);
-      }
-      return undefined;
-    });
-    const shared = getSharedCodexAppServerClientState();
-    shared.isolatedClients.add(harness.client);
+        return undefined;
+      },
+      { persistedThreads: [] },
+    );
     ownCodexInferenceClient(harness.client);
     const unsubscribe = { method: "thread/unsubscribe", params: { threadId: "thread-1" } };
     try {
@@ -174,7 +173,6 @@ describe("prompt hook context with native background commands", () => {
     } finally {
       source.abort(new Error("fixture cleanup"));
       harness.close();
-      shared.isolatedClients.delete(harness.client);
     }
   });
 });
